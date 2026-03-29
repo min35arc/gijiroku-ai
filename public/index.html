@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>議事録AI - 自動要約ツール</title>
+    <meta name="description" content="音声ファイルをアップロードするだけ。AIが文字起こしと要点整理を自動で行います。">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Noto Sans JP', sans-serif; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+        .fade-up { animation: fadeUp 0.4s ease; }
+        .spinner { animation: spin 0.8s linear infinite; }
+        .pulsing { animation: pulse 1.5s infinite; }
+        .drop-active { background: #eff6ff !important; border-color: #3b82f6 !important; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col items-center justify-start p-4 pt-8">
+
+    <!-- ヘッダー -->
+    <div class="text-center mb-6">
+        <h1 class="text-2xl font-extrabold text-gray-900 mb-1">議事録 自動要約ツール</h1>
+        <p class="text-sm text-gray-500">音声から文字起こし → AIが要点を自動整理</p>
+    </div>
+
+    <!-- ステッパー -->
+    <div class="flex items-center justify-center gap-0 mb-6" id="stepper">
+        <div class="flex items-center gap-2">
+            <div id="step-dot-0" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-blue-600 text-white shadow-md">1</div>
+            <span id="step-label-0" class="text-xs font-bold text-gray-800">入力</span>
+        </div>
+        <div id="step-line-0" class="w-10 h-0.5 bg-gray-200 mx-2"></div>
+        <div class="flex items-center gap-2">
+            <div id="step-dot-1" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-gray-200 text-gray-400">2</div>
+            <span id="step-label-1" class="text-xs font-normal text-gray-400">文字起こし</span>
+        </div>
+        <div id="step-line-1" class="w-10 h-0.5 bg-gray-200 mx-2"></div>
+        <div class="flex items-center gap-2">
+            <div id="step-dot-2" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-gray-200 text-gray-400">3</div>
+            <span id="step-label-2" class="text-xs font-normal text-gray-400">要約</span>
+        </div>
+    </div>
+
+    <!-- メインカード -->
+    <div class="max-w-lg w-full bg-white rounded-xl shadow-lg border border-gray-200 p-6 sm:p-8">
+
+        <!-- ========== STEP 0: 入力 ========== -->
+        <div id="view-input" class="fade-up">
+
+            <!-- タブ -->
+            <div class="flex border-b border-gray-200 mb-6">
+                <button id="tab-upload" onclick="switchTab('upload')"
+                    class="flex-1 py-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 focus:outline-none flex justify-center items-center">
+                    <i class="fas fa-file-upload mr-2"></i>ファイルアップロード
+                </button>
+                <button id="tab-record" onclick="switchTab('record')"
+                    class="flex-1 py-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 focus:outline-none flex justify-center items-center">
+                    <i class="fas fa-microphone mr-2"></i>リアルタイム録音
+                </button>
+            </div>
+
+            <!-- アップロードエリア -->
+            <div id="area-upload">
+                <div id="dropzone" onclick="document.getElementById('fileInput').click()"
+                    class="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center hover:bg-blue-50 hover:border-blue-300 transition-colors cursor-pointer mb-4 group">
+                    <div class="text-gray-400 group-hover:text-blue-500 text-4xl mb-3 transition-colors">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </div>
+                    <p class="text-gray-800 font-bold mb-1">音声ファイルをドラッグ＆ドロップ</p>
+                    <p class="text-xs text-gray-400 mt-2">MP3 / WAV / M4A / MP4 / WebM 対応（最大100MB）</p>
+                </div>
+                <input type="file" id="fileInput" accept="audio/*,video/*" class="hidden" onchange="handleFile(this.files[0])">
+
+                <!-- 選択済みファイル表示 -->
+                <div id="file-chip" class="hidden flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                    <i class="fas fa-paperclip text-blue-500"></i>
+                    <span id="file-name" class="text-sm text-gray-800 flex-1 truncate"></span>
+                    <span id="file-size" class="text-xs text-gray-400"></span>
+                    <button onclick="clearFile()" class="text-gray-400 hover:text-red-500 text-lg">&times;</button>
+                </div>
+
+                <button id="btn-transcribe" onclick="startTranscribe()" disabled
+                    class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-lg shadow-md transition-colors flex justify-center items-center text-base">
+                    文字起こしを開始 <i class="fas fa-arrow-right ml-2 text-sm"></i>
+                </button>
+            </div>
+
+            <!-- 録音エリア -->
+            <div id="area-record" class="hidden text-center py-4">
+                <canvas id="waveCanvas" width="320" height="60" class="mx-auto mb-4" style="max-width:100%;"></canvas>
+                <div id="rec-time" class="text-4xl font-extrabold text-gray-300 tabular-nums tracking-wider mb-6">00:00</div>
+
+                <div id="rec-controls-start">
+                    <button onclick="startRecording()"
+                        class="bg-red-500 hover:bg-red-600 text-white font-bold py-3.5 px-12 rounded-lg shadow-md text-base">
+                        <i class="fas fa-circle mr-2 text-xs"></i>録音開始
+                    </button>
+                </div>
+                <div id="rec-controls-active" class="hidden flex gap-3 justify-center">
+                    <button onclick="stopRecording(false)"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-3.5 px-6 rounded-lg text-sm">
+                        <i class="fas fa-pause mr-1"></i>一時停止
+                    </button>
+                    <button onclick="stopRecording(true)"
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-lg text-sm">
+                        <i class="fas fa-stop mr-1"></i>停止して文字起こし →
+                    </button>
+                </div>
+            </div>
+
+            <!-- セキュリティ注記 -->
+            <div class="mt-5 text-center">
+                <p class="text-xs text-gray-500 flex items-center justify-center bg-gray-50 py-2 rounded-md">
+                    <i class="fas fa-shield-alt text-green-500 mr-1.5"></i>
+                    セキュリティ保護: 音声データは処理後すぐに削除されます
+                </p>
+            </div>
+        </div>
+
+        <!-- ========== STEP 1: 文字起こし ========== -->
+        <div id="view-transcribe" class="hidden fade-up">
+            <div class="flex items-center gap-3 mb-4">
+                <div id="transcribe-spinner" class="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full spinner"></div>
+                <span id="transcribe-status" class="text-sm font-bold text-blue-600">Whisper APIで文字起こし中...</span>
+            </div>
+            <div id="transcript-box" class="bg-gray-50 border border-gray-200 rounded-xl p-5 text-sm leading-relaxed text-gray-700 max-h-72 overflow-y-auto whitespace-pre-wrap mb-4">
+            </div>
+            <button id="btn-summarize" onclick="startSummarize()" disabled
+                class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-lg shadow-md transition-colors flex justify-center items-center text-base hidden">
+                AIで要約する <i class="fas fa-arrow-right ml-2 text-sm"></i>
+            </button>
+        </div>
+
+        <!-- ========== STEP 2: 要約結果 ========== -->
+        <div id="view-summary" class="hidden fade-up">
+            <!-- ローディング -->
+            <div id="summary-loading" class="text-center py-12">
+                <div class="w-8 h-8 border-2 border-blue-200 border-t-blue-600 rounded-full spinner mx-auto"></div>
+                <p class="text-blue-600 text-sm mt-4 pulsing font-bold">Claude APIで要約を生成中...</p>
+            </div>
+
+            <!-- 結果 -->
+            <div id="summary-result" class="hidden">
+                <!-- タイトル -->
+                <div class="mb-5">
+                    <p class="text-[10px] font-bold text-blue-600 tracking-widest uppercase mb-1">会議タイトル</p>
+                    <h2 id="s-title" class="text-xl font-extrabold text-gray-900"></h2>
+                    <p id="s-date" class="text-xs text-gray-400 mt-1"></p>
+                </div>
+
+                <!-- 参加者 -->
+                <div class="mb-5">
+                    <p class="text-[10px] font-bold text-blue-600 tracking-widest uppercase mb-2">参加者</p>
+                    <div id="s-participants" class="flex flex-wrap gap-1.5"></div>
+                </div>
+
+                <!-- 概要 -->
+                <div id="s-summary-block" class="mb-5 hidden">
+                    <p class="text-[10px] font-bold text-blue-600 tracking-widest uppercase mb-2">概要</p>
+                    <p id="s-summary" class="text-sm text-gray-700 leading-relaxed"></p>
+                </div>
+
+                <!-- 要点 -->
+                <div class="mb-5">
+                    <p class="text-[10px] font-bold text-blue-600 tracking-widest uppercase mb-2">要点</p>
+                    <div id="s-keypoints"></div>
+                </div>
+
+                <!-- 決定事項 -->
+                <div id="s-decisions-block" class="mb-5 hidden">
+                    <p class="text-[10px] font-bold text-blue-600 tracking-widest uppercase mb-2">決定事項</p>
+                    <div id="s-decisions"></div>
+                </div>
+
+                <!-- リスク -->
+                <div id="s-risks-block" class="mb-5 hidden">
+                    <p class="text-[10px] font-bold text-blue-600 tracking-widest uppercase mb-2">リスク・懸念</p>
+                    <div id="s-risks"></div>
+                </div>
+
+                <!-- アクションアイテム -->
+                <div id="s-actions-block" class="mb-5 hidden">
+                    <p class="text-[10px] font-bold text-blue-600 tracking-widest uppercase mb-2">アクションアイテム</p>
+                    <div id="s-actions"></div>
+                </div>
+
+                <!-- ボタン -->
+                <div class="flex gap-3 mt-6">
+                    <button onclick="resetAll()"
+                        class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg text-sm transition-colors">
+                        <i class="fas fa-redo mr-1"></i> 新しい音声
+                    </button>
+                    <button onclick="copySummary()"
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg text-sm shadow-md transition-colors">
+                        <i class="fas fa-copy mr-1"></i> コピー
+                    </button>
+                </div>
+
+                <!-- 残り回数 -->
+                <div id="usage-info" class="mt-4 text-center">
+                    <p class="text-xs text-gray-400">本日の残り回数: <span id="usage-remaining" class="font-bold text-gray-600">-</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- フッター -->
+    <p class="text-xs text-gray-300 mt-6">Powered by OpenAI Whisper + Claude API</p>
+
+<script>
+// ==========================
+// 状態管理
+// ==========================
+let currentStep = 0;
+let selectedFile = null;
+let transcriptText = '';
+let summaryData = null;
+let mediaRecorder = null;
+let recordChunks = [];
+let recordTimer = null;
+let recordSeconds = 0;
+let isRecording = false;
+
+// ==========================
+// ステッパー更新
+// ==========================
+function updateStepper(step) {
+    currentStep = step;
+    for (let i = 0; i < 3; i++) {
+        const dot = document.getElementById(`step-dot-${i}`);
+        const label = document.getElementById(`step-label-${i}`);
+        if (i < step) {
+            dot.className = 'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-blue-600 text-white';
+            dot.textContent = '✓';
+            label.className = 'text-xs font-medium text-gray-600';
+        } else if (i === step) {
+            dot.className = 'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-blue-600 text-white shadow-md';
+            dot.textContent = i + 1;
+            label.className = 'text-xs font-bold text-gray-800';
+        } else {
+            dot.className = 'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-gray-200 text-gray-400';
+            dot.textContent = i + 1;
+            label.className = 'text-xs font-normal text-gray-400';
+        }
+        if (i < 2) {
+            const line = document.getElementById(`step-line-${i}`);
+            line.className = i < step ? 'w-10 h-0.5 bg-blue-600 mx-2' : 'w-10 h-0.5 bg-gray-200 mx-2';
+        }
+    }
+}
+
+// ==========================
+// タブ切り替え
+// ==========================
+function switchTab(tab) {
+    const tabUpload = document.getElementById('tab-upload');
+    const tabRecord = document.getElementById('tab-record');
+    const areaUpload = document.getElementById('area-upload');
+    const areaRecord = document.getElementById('area-record');
+
+    if (tab === 'upload') {
+        tabUpload.className = 'flex-1 py-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 focus:outline-none flex justify-center items-center';
+        tabRecord.className = 'flex-1 py-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 focus:outline-none flex justify-center items-center';
+        areaUpload.classList.remove('hidden');
+        areaRecord.classList.add('hidden');
+    } else {
+        tabRecord.className = 'flex-1 py-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 focus:outline-none flex justify-center items-center';
+        tabUpload.className = 'flex-1 py-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 focus:outline-none flex justify-center items-center';
+        areaRecord.classList.remove('hidden');
+        areaUpload.classList.add('hidden');
+    }
+}
+
+// ==========================
+// ファイルアップロード
+// ==========================
+const dropzone = document.getElementById('dropzone');
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drop-active'); });
+dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('drop-active'); });
+dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drop-active');
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+function handleFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('file-size').textContent = (file.size / 1024 / 1024).toFixed(1) + ' MB';
+    document.getElementById('file-chip').classList.remove('hidden');
+    document.getElementById('btn-transcribe').disabled = false;
+}
+
+function clearFile() {
+    selectedFile = null;
+    document.getElementById('file-chip').classList.add('hidden');
+    document.getElementById('btn-transcribe').disabled = true;
+    document.getElementById('fileInput').value = '';
+}
+
+// ==========================
+// リアルタイム録音
+// ==========================
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        recordChunks = [];
+        recordSeconds = 0;
+        isRecording = true;
+
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordChunks.push(e.data); };
+        mediaRecorder.start(1000);
+
+        document.getElementById('rec-controls-start').classList.add('hidden');
+        document.getElementById('rec-controls-active').classList.remove('hidden');
+        document.getElementById('rec-time').classList.remove('text-gray-300');
+        document.getElementById('rec-time').classList.add('text-red-500');
+
+        recordTimer = setInterval(() => {
+            recordSeconds++;
+            const m = String(Math.floor(recordSeconds / 60)).padStart(2, '0');
+            const s = String(recordSeconds % 60).padStart(2, '0');
+            document.getElementById('rec-time').textContent = `${m}:${s}`;
+        }, 1000);
+
+        drawWave(true);
+    } catch (err) {
+        alert('マイクへのアクセスが許可されていません。ブラウザの設定を確認してください。');
+    }
+}
+
+function stopRecording(proceed) {
+    isRecording = false;
+    clearInterval(recordTimer);
+
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    }
+
+    document.getElementById('rec-controls-active').classList.add('hidden');
+    document.getElementById('rec-controls-start').classList.remove('hidden');
+    document.getElementById('rec-time').classList.remove('text-red-500');
+    document.getElementById('rec-time').classList.add('text-gray-300');
+
+    if (proceed && recordChunks.length > 0) {
+        const blob = new Blob(recordChunks, { type: 'audio/webm' });
+        selectedFile = new File([blob], 'recording.webm', { type: 'audio/webm' });
+        startTranscribe();
+    }
+
+    drawWave(false);
+}
+
+function drawWave(active) {
+    const canvas = document.getElementById('waveCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    let t = 0;
+
+    function render() {
+        ctx.clearRect(0, 0, W, H);
+        const bars = 40, gap = W / bars;
+        for (let i = 0; i < bars; i++) {
+            const h = active
+                ? (Math.sin(t * 0.06 + i * 0.4) * 0.5 + 0.5) * H * 0.7 * (Math.random() * 0.3 + 0.7)
+                : 2;
+            ctx.fillStyle = active ? `rgba(239,68,68,${0.5 + Math.sin(t*0.03+i*0.2)*0.3})` : 'rgba(203,213,225,0.4)';
+            ctx.beginPath();
+            ctx.roundRect(i * gap + gap * 0.25, (H - h) / 2, gap * 0.5, h, 2);
+            ctx.fill();
+        }
+        t++;
+        if (isRecording) requestAnimationFrame(render);
+    }
+    render();
+}
+
+// ==========================
+// Step 1: 文字起こし
+// ==========================
+async function startTranscribe() {
+    if (!selectedFile) return;
+
+    // UI切り替え
+    document.getElementById('view-input').classList.add('hidden');
+    document.getElementById('view-transcribe').classList.remove('hidden');
+    updateStepper(1);
+
+    const formData = new FormData();
+    formData.append('audio', selectedFile);
+
+    try {
+        const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || '文字起こしに失敗しました');
+
+        transcriptText = data.text;
+
+        // タイピングアニメーション
+        const box = document.getElementById('transcript-box');
+        let idx = 0;
+        const typeInterval = setInterval(() => {
+            idx = Math.min(idx + 5, transcriptText.length);
+            box.textContent = transcriptText.slice(0, idx);
+            box.scrollTop = box.scrollHeight;
+            if (idx >= transcriptText.length) {
+                clearInterval(typeInterval);
+                // 完了表示
+                document.getElementById('transcribe-spinner').classList.add('hidden');
+                document.getElementById('transcribe-status').textContent = '✓ 文字起こし完了';
+                document.getElementById('transcribe-status').classList.remove('text-blue-600');
+                document.getElementById('transcribe-status').classList.add('text-green-600');
+                document.getElementById('btn-summarize').classList.remove('hidden');
+                document.getElementById('btn-summarize').disabled = false;
+            }
+        }, 10);
+
+    } catch (err) {
+        document.getElementById('transcribe-spinner').classList.add('hidden');
+        document.getElementById('transcribe-status').textContent = '✗ エラー: ' + err.message;
+        document.getElementById('transcribe-status').classList.remove('text-blue-600');
+        document.getElementById('transcribe-status').classList.add('text-red-600');
+        document.getElementById('transcript-box').textContent = err.message;
+    }
+}
+
+// ==========================
+// Step 2: 要約
+// ==========================
+async function startSummarize() {
+    document.getElementById('view-transcribe').classList.add('hidden');
+    document.getElementById('view-summary').classList.remove('hidden');
+    updateStepper(2);
+
+    try {
+        const res = await fetch('/api/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: transcriptText })
+        });
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || '要約に失敗しました');
+
+        summaryData = data.summary;
+        renderSummary(data.summary, data.remaining);
+
+    } catch (err) {
+        document.getElementById('summary-loading').innerHTML = `
+            <div class="text-red-500">
+                <i class="fas fa-exclamation-circle text-2xl mb-2"></i>
+                <p class="text-sm font-bold">${err.message}</p>
+                <button onclick="startSummarize()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-bold">再試行</button>
+            </div>
+        `;
+    }
+}
+
+function renderSummary(s, remaining) {
+    document.getElementById('summary-loading').classList.add('hidden');
+    document.getElementById('summary-result').classList.remove('hidden');
+
+    document.getElementById('s-title').textContent = s.title || '会議要約';
+    document.getElementById('s-date').textContent = s.date || new Date().toLocaleDateString('ja-JP');
+
+    // 参加者
+    const pEl = document.getElementById('s-participants');
+    pEl.innerHTML = (s.participants || []).map(p =>
+        `<span class="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-md">${p}</span>`
+    ).join('');
+
+    // 概要
+    if (s.summary) {
+        document.getElementById('s-summary-block').classList.remove('hidden');
+        document.getElementById('s-summary').textContent = s.summary;
+    }
+
+    // 要点
+    document.getElementById('s-keypoints').innerHTML = (s.keyPoints || []).map(pt =>
+        `<div class="flex gap-2 items-start py-2 border-b border-gray-100 last:border-0">
+            <div class="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0"></div>
+            <span class="text-sm text-gray-700">${pt}</span>
+        </div>`
+    ).join('');
+
+    // 決定事項
+    if (s.decisions && s.decisions.length > 0) {
+        document.getElementById('s-decisions-block').classList.remove('hidden');
+        document.getElementById('s-decisions').innerHTML = s.decisions.map(d =>
+            `<div class="flex gap-2 items-start py-2 border-b border-gray-100 last:border-0">
+                <i class="fas fa-check-circle text-green-500 mt-0.5 text-xs"></i>
+                <span class="text-sm text-gray-700">${d}</span>
+            </div>`
+        ).join('');
+    }
+
+    // リスク
+    if (s.risks && s.risks.length > 0) {
+        document.getElementById('s-risks-block').classList.remove('hidden');
+        document.getElementById('s-risks').innerHTML = s.risks.map(r =>
+            `<div class="flex gap-2 items-start py-2 border-b border-gray-100 last:border-0">
+                <i class="fas fa-exclamation-triangle text-amber-500 mt-0.5 text-xs"></i>
+                <span class="text-sm text-gray-700">${r}</span>
+            </div>`
+        ).join('');
+    }
+
+    // アクションアイテム
+    if (s.actions && s.actions.length > 0) {
+        document.getElementById('s-actions-block').classList.remove('hidden');
+        document.getElementById('s-actions').innerHTML = s.actions.map(a =>
+            `<div class="flex justify-between items-center py-2.5 border-b border-gray-100 last:border-0">
+                <div class="flex items-center gap-2">
+                    <span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 text-xs font-medium rounded">${a.who}</span>
+                    <span class="text-sm text-gray-700">${a.what}</span>
+                </div>
+                <span class="text-xs text-gray-400 shrink-0 ml-2">${a.deadline || ''}</span>
+            </div>`
+        ).join('');
+    }
+
+    // 残り回数
+    if (remaining !== undefined) {
+        document.getElementById('usage-remaining').textContent = remaining;
+    }
+}
+
+// ==========================
+// コピー & リセット
+// ==========================
+function copySummary() {
+    if (!summaryData) return;
+    const s = summaryData;
+    const text = [
+        `# ${s.title}`,
+        `日付: ${s.date || ''}`,
+        `参加者: ${(s.participants || []).join(', ')}`,
+        s.summary ? `\n## 概要\n${s.summary}` : '',
+        `\n## 要点`,
+        ...(s.keyPoints || []).map(p => `- ${p}`),
+        s.decisions && s.decisions.length ? `\n## 決定事項\n${s.decisions.map(d => `- ${d}`).join('\n')}` : '',
+        s.risks && s.risks.length ? `\n## リスク・懸念\n${s.risks.map(r => `- ${r}`).join('\n')}` : '',
+        s.actions && s.actions.length ? `\n## アクションアイテム\n${s.actions.map(a => `- [${a.who}] ${a.what}${a.deadline ? '（' + a.deadline + '）' : ''}`).join('\n')}` : '',
+    ].filter(Boolean).join('\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target.closest('button');
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check mr-1"></i> コピー完了!';
+        setTimeout(() => btn.innerHTML = orig, 1500);
+    });
+}
+
+function resetAll() {
+    currentStep = 0;
+    selectedFile = null;
+    transcriptText = '';
+    summaryData = null;
+
+    // ビュー切り替え
+    document.getElementById('view-summary').classList.add('hidden');
+    document.getElementById('view-transcribe').classList.add('hidden');
+    document.getElementById('view-input').classList.remove('hidden');
+
+    // 入力リセット
+    clearFile();
+    document.getElementById('transcript-box').textContent = '';
+    document.getElementById('transcribe-spinner').classList.remove('hidden');
+    document.getElementById('transcribe-status').textContent = 'Whisper APIで文字起こし中...';
+    document.getElementById('transcribe-status').className = 'text-sm font-bold text-blue-600';
+    document.getElementById('btn-summarize').classList.add('hidden');
+    document.getElementById('summary-loading').classList.remove('hidden');
+    document.getElementById('summary-result').classList.add('hidden');
+
+    // セクション非表示リセット
+    ['s-summary-block', 's-decisions-block', 's-risks-block', 's-actions-block'].forEach(id =>
+        document.getElementById(id).classList.add('hidden')
+    );
+
+    updateStepper(0);
+    switchTab('upload');
+}
+
+// 初期化
+drawWave(false);
+</script>
+</body>
+</html>
